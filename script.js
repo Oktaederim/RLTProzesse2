@@ -61,7 +61,6 @@ document.addEventListener('DOMContentLoaded', () => {
             tempHeizVorlauf: parseFloat(dom.tempHeizVorlauf.value), tempHeizRuecklauf: parseFloat(dom.tempHeizRuecklauf.value),
             tempKuehlVorlauf: parseFloat(dom.tempKuehlVorlauf.value), tempKuehlRuecklauf: parseFloat(dom.tempKuehlRuecklauf.value),
         };
-
         const aussen = { t: inputs.tempAussen, rh: inputs.rhAussen, x: getX(inputs.tempAussen, inputs.rhAussen, inputs.druck) };
         if (!isFinite(aussen.x)) { dom.processOverviewContainer.innerHTML = `<div class="process-overview process-error">Fehler im Außenluft-Zustand.</div>`; return; }
         aussen.h = getH(aussen.t, aussen.x);
@@ -72,7 +71,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (inputs.feuchteSollTyp === 'rh') { zuluftSoll.rh = inputs.rhZuluft; zuluftSoll.x = getX(zuluftSoll.t, zuluftSoll.rh, inputs.druck); } 
             else { zuluftSoll.x = inputs.xZuluft; zuluftSoll.rh = getRh(zuluftSoll.t, zuluftSoll.x, inputs.druck); }
         } else {
-            zuluftSoll.x = aussen.x; zuluftSoll.rh = getRh(zuluftSoll.t, zuluftSoll.x, inputs.druck);
+            zuluftSoll.x = aussen.x;
+            zuluftSoll.rh = getRh(zuluftSoll.t, zuluftSoll.x, inputs.druck);
         }
         zuluftSoll.h = getH(zuluftSoll.t, zuluftSoll.x);
 
@@ -136,6 +136,8 @@ document.addEventListener('DOMContentLoaded', () => {
         colors[3] = operations.ne.p > 0 ? 'color-red' : colors[2];
         colors[4] = colors[3];
         
+        dom.nodes.forEach((node, i) => node.classList.toggle('inactive', operations.ve.p <= 0 && i === 1 || operations.k.p <= 0 && i === 2 || operations.ne.p <= 0 && i === 3));
+
         updateStateNode(dom.stateSpans[0], dom.nodes[0], states[0], colors[0]);
         updateComponentNode(dom.compVE, operations.ve.p, -1, operations.ve.wv);
         updateStateNode(dom.stateSpans[1], dom.nodes[1], states[1], colors[1]);
@@ -176,7 +178,6 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.setReferenceBtn.textContent = referenceState ? 'Referenz gesetzt' : 'Neue Referenz setzen';
 
         if (referenceState) {
-            dom.referenceDetails.classList.remove('invisible');
             const changeAbs = currentTotalCost - referenceState.cost;
             const changePerc = referenceState.cost > 0 ? (changeAbs / referenceState.cost) * 100 : 0;
             const sign = changeAbs >= 0 ? '+' : '';
@@ -190,7 +191,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const deltaVol = inputs.volumenstrom - referenceState.vol;
             dom.volumenAenderung.textContent = `${deltaVol >= 0 ? '+' : ''}${deltaVol.toFixed(0)} m³/h`;
         } else {
-            dom.referenceDetails.classList.add('invisible');
+            dom.kostenAenderung.textContent = '--';
+            dom.tempAenderung.textContent = '--';
+            dom.rhAenderung.textContent = '--';
+            dom.volumenAenderung.textContent = '--';
+            dom.kostenAenderung.className = 'cost-value';
         }
     }
     
@@ -206,13 +211,14 @@ document.addEventListener('DOMContentLoaded', () => {
         comp.p.textContent = power.toFixed(2);
         comp.node.classList.toggle('active', power > 0);
         comp.node.classList.toggle('inactive', power <= 0);
-        if (comp.kondensat) comp.kondensat.textContent = (kondensat > 0) ? kondensat.toFixed(2) : '0.00';
+        if (comp.kondensat) comp.kondensat.textContent = (kondensat >= 0) ? kondensat.toFixed(2) : '0.00';
         if (comp.wv) comp.wv.textContent = wasserstrom.toFixed(2);
     }
 
     function handleSetReference() {
         referenceState = { cost: currentTotalCost, temp: parseFloat(dom.tempZuluft.value), rh: parseFloat(dom.rhZuluft.value), vol: parseFloat(dom.volumenstrom.value) };
         dom.resetSlidersBtn.disabled = false;
+        dom.referenceDetails.classList.remove('invisible');
         calculateAll();
     }
     
@@ -249,7 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const isDehumidify = dom.kuehlmodus.value === 'dehumidify';
         dom.sollFeuchteWrapper.style.display = isActive && isDehumidify ? 'block' : 'none';
     }
-
+    
     function syncAllSlidersToInputs(){
         const tempVal = parseFloat(dom.tempZuluft.value);
         if(!isNaN(tempVal)) {
@@ -263,30 +269,25 @@ document.addEventListener('DOMContentLoaded', () => {
     function syncSliderToInput(slider, input, label, isFloat = false) {
         const newValue = parseFloat(input.value);
         if(isNaN(newValue)) return;
-        if (input.id === 'volumenstrom' && newValue > parseFloat(slider.max)) slider.max = newValue;
+        if (input.id === 'volumenstrom' && newValue > parseFloat(slider.max)) slider.max = Math.ceil(newValue * 1.25 / 100) * 100;
         slider.value = newValue;
         label.textContent = isFloat ? newValue.toFixed(1) : newValue;
     }
     
     // --- INITIALIZATION ---
     function addEventListeners() {
-        // Simple inputs that only trigger a recalculation
         const simpleInputs = [
-            dom.tempAussen, dom.rhAussen, dom.druck,
-            dom.preisWaerme, dom.preisStrom, dom.eer, dom.xZuluft,
-            dom.tempHeizVorlauf, dom.tempHeizRuecklauf,
+            dom.tempAussen, dom.rhAussen, dom.druck, dom.preisWaerme, dom.preisStrom, dom.eer,
+            dom.xZuluft, dom.tempHeizVorlauf, dom.tempHeizRuecklauf,
             dom.tempKuehlVorlauf, dom.tempKuehlRuecklauf
         ];
         simpleInputs.forEach(input => input.addEventListener('input', calculateAll));
 
-        // Synced inputs (sliders and number boxes)
         const syncedInputs = [dom.volumenstrom, dom.tempZuluft, dom.rhZuluft];
         syncedInputs.forEach(input => {
-            input.addEventListener('input', () => {
-                syncAllSlidersToInputs();
-                calculateAll();
-            });
+            input.addEventListener('input', () => { syncAllSlidersToInputs(); calculateAll(); });
         });
+        
         const sliders = [dom.volumenstromSlider, dom.tempZuluftSlider, dom.rhZuluftSlider];
         sliders.forEach(slider => {
             slider.addEventListener('input', () => {
@@ -299,12 +300,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // Toggles and Selects
         dom.kuehlerAktiv.addEventListener('change', () => { handleKuehlerToggle(); calculateAll(); });
         dom.feuchteSollTyp.addEventListener('change', () => { handleKuehlerToggle(); calculateAll(); });
         dom.kuehlmodus.addEventListener('change', () => { handleKuehlerToggle(); calculateAll(); });
         
-        // Buttons
         dom.resetBtn.addEventListener('click', resetToDefaults);
         dom.resetSlidersBtn.addEventListener('click', resetSlidersToRef);
         dom.setReferenceBtn.addEventListener('click', handleSetReference);
